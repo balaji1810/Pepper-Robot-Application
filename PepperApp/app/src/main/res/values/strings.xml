@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Pepper App</string>
+    <string name="status_waiting">Waiting for robot focus…</string>
+    <string name="status_listening">Listening…</string>
+    <string name="status_ready">Say something!</string>
+    <string name="status_processing">Processing speech…</string>
+    <string name="status_error">Error: %1$s</string>
+    <string name="status_no_speech">No speech detected, try again</string>
+    <string name="recognized_text_hint">Your speech will appear here</string>
+</resources>
