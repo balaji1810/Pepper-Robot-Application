@@ -1,10 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Pepper App</string>
+    <string name="app_name">Pepper Chatbot</string>
+
+    <!-- Status messages -->
     <string name="status_waiting">Waiting for robot focus…</string>
     <string name="status_listening">Listening…</string>
-    <string name="status_ready">Say something!</string>
-    <string name="status_processing">Processing speech…</string>
+    <string name="status_speaking">You are speaking…</string>
+    <string name="status_ready">Ready - Say something!</string>
+    <string name="status_processing">Processing…</string>
+    <string name="status_sending">Sending to AI…</string>
+    <string name="status_bot_responding">Pepper is thinking…</string>
+    <string name="status_pepper_speaking">Pepper is speaking…</string>
     <string name="status_error">Error: %1$s</string>
     <string name="status_no_speech">No speech detected, try again</string>
+    <string name="status_permission_denied">Microphone permission denied</string>
+    <string name="status_asr_not_available">Speech recognition not available</string>
+
+    <!-- Hints and labels -->
+    <string name="hint_speak_now">🎤 Speak now…</string>
     <string name="recognized_text_hint">Your speech will appear here</string>
+    <string name="instructions_chatbot">Speak naturally to chat with Pepper.\nPepper will listen and respond automatically.</string>
+    <string name="btn_clear">Exit</string>
+
+    <!-- Conversation labels -->
+    <string name="label_you">You</string>
+    <string name="label_pepper">Pepper</string>
+    <string name="label_system">System</string>
 </resources>
