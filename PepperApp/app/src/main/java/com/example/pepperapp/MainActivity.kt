@@ -1,13 +1,13 @@
 package com.example.pepperapp
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.util.Log
+import android.view.View
+import android.widget.Button
+import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
@@ -20,42 +20,148 @@ import java.util.Locale
 private const val TAG = "MainActivity"
 private const val PERMISSION_REQUEST_CODE = 1001
 
-class MainActivity : ComponentActivity(), RobotLifecycleCallbacks {
+// API Configuration - Change these to your server's IP and token
+private const val API_BASE_URL = "http://192.168.0.108:5000"
+private const val API_AUTH_TOKEN = "supersecretapitoken"  // Replace with your actual Bearer token
 
+/**
+ * Main Activity for the Pepper Chatbot App.
+ *
+ * This activity manages:
+ * - Speech recognition (HandsFreeAsr)
+ * - Chatbot API communication (ChatApiClient)
+ * - Pepper speech synthesis (ChatBotManager)
+ * - UI for conversation display
+ *
+ * Flow:
+ * 1. User speaks → ASR transcribes
+ * 2. Transcription → API → Bot response
+ * 3. Bot response → Pepper speaks
+ * 4. Repeat
+ */
+class MainActivity : ComponentActivity(),
+    RobotLifecycleCallbacks,
+    HandsFreeAsr.Listener,
+    ChatBotManager.Listener {
+
+    // UI Components
     private lateinit var statusTextView: TextView
-    private lateinit var recognizedTextView: TextView
+    private lateinit var stateIndicator: View
+    private lateinit var volumeIndicator: ProgressBar
+    private lateinit var conversationScrollView: ScrollView
+    private lateinit var conversationTextView: TextView
+    private lateinit var currentSpeechTextView: TextView
+    private lateinit var clearButton: Button
 
+    // Robot state
     private var qiContext: QiContext? = null
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var isListening = false
     private var hasRobotFocus = false
+
+    // Components
+    private var handsFreeAsr: HandsFreeAsr? = null
+    private var chatBotManager: ChatBotManager? = null
+    private val apiClient = ChatApiClient(API_BASE_URL, API_AUTH_TOKEN)
+
+    // Activity visibility state
+    private var isActivityVisible = false
+
+    // Permission state
+    private var hasAudioPermission = false
+
+    // Conversation display
+    private val conversationBuilder = StringBuilder()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        statusTextView = findViewById(R.id.statusTextView)
-        recognizedTextView = findViewById(R.id.recognizedTextView)
+        // Initialize UI components
+        initializeViews()
 
-        // Check and request audio permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
+        // Set initial state
+        updateStateIndicator(ChatState.INITIALIZING)
+
+        // Check audio permission
+        checkAndRequestAudioPermission()
+
+        // Initialize components
+        initHandsFreeAsr()
+        initChatBotManager()
+
+        // Register with QiSDK for robot focus
+        QiSDK.register(this, this)
+
+        Log.i(TAG, "MainActivity created")
+    }
+
+    private fun initializeViews() {
+        statusTextView = findViewById(R.id.statusTextView)
+        stateIndicator = findViewById(R.id.stateIndicator)
+        volumeIndicator = findViewById(R.id.volumeIndicator)
+        conversationScrollView = findViewById(R.id.conversationScrollView)
+        conversationTextView = findViewById(R.id.conversationTextView)
+        currentSpeechTextView = findViewById(R.id.currentSpeechTextView)
+        clearButton = findViewById(R.id.clearButton)
+
+        // Set up exit button (was clear button)
+        clearButton.setOnClickListener {
+            exitApp()
+        }
+
+        // Initial UI state
+        updateStateIndicator(ChatState.INITIALIZING)
+        conversationTextView.text = ""
+        currentSpeechTextView.text = getString(R.string.hint_speak_now)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.i(TAG, "onResume - Activity becoming visible")
+
+        isActivityVisible = true
+        tryStartListening()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.i(TAG, "onPause - Activity losing visibility")
+
+        isActivityVisible = false
+        stopListeningCompletely()
+    }
+
+    override fun onDestroy() {
+        Log.i(TAG, "onDestroy - Cleaning up resources")
+
+        handsFreeAsr?.destroy()
+        handsFreeAsr = null
+
+        chatBotManager?.destroy()
+        chatBotManager = null
+
+        QiSDK.unregister(this, this)
+
+        super.onDestroy()
+    }
+
+    // Permission Handling
+
+    private fun checkAndRequestAudioPermission() {
+        hasAudioPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasAudioPermission) {
+            Log.i(TAG, "Requesting audio permission")
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(Manifest.permission.RECORD_AUDIO),
                 PERMISSION_REQUEST_CODE
             )
+        } else {
+            Log.i(TAG, "Audio permission already granted")
         }
-
-        QiSDK.register(this, this)
-    }
-
-    override fun onDestroy() {
-        stopListening()
-        speechRecognizer?.destroy()
-        speechRecognizer = null
-        QiSDK.unregister(this, this)
-        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")
@@ -65,30 +171,99 @@ class MainActivity : ComponentActivity(), RobotLifecycleCallbacks {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Log.i(TAG, "Audio permission granted")
-                if (hasRobotFocus) {
-                    startListening()
-                }
+                Log.i(TAG, "Audio permission granted by user")
+                hasAudioPermission = true
+                tryStartListening()
             } else {
-                Log.e(TAG, "Audio permission denied")
-                statusTextView.text = getString(R.string.status_error, "Audio permission denied")
+                Log.e(TAG, "Audio permission denied by user")
+                hasAudioPermission = false
+                statusTextView.text = getString(R.string.status_permission_denied)
+                updateStateIndicator(ChatState.ERROR)
             }
         }
     }
 
+    // Component Initialization
+
+    private fun initHandsFreeAsr() {
+        handsFreeAsr = HandsFreeAsr(this, this).apply {
+//            setLanguage(Locale.ITALIAN)
+            setLanguage(Locale.ENGLISH)
+        }
+
+        if (handsFreeAsr?.isRecognitionAvailable() != true) {
+            Log.e(TAG, "Speech recognition not available on this device")
+            statusTextView.text = getString(R.string.status_asr_not_available)
+        }
+    }
+
+    private fun initChatBotManager() {
+        chatBotManager = ChatBotManager(apiClient, this)
+    }
+
+    // Listening Control
+
+    private fun tryStartListening() {
+        Log.d(TAG, "tryStartListening: visible=$isActivityVisible, permission=$hasAudioPermission, focus=$hasRobotFocus")
+
+        if (!isActivityVisible) {
+            Log.d(TAG, "Cannot start: activity not visible")
+            return
+        }
+
+        if (!hasAudioPermission) {
+            Log.d(TAG, "Cannot start: no audio permission")
+            statusTextView.text = getString(R.string.status_permission_denied)
+            return
+        }
+
+        if (!hasRobotFocus) {
+            Log.d(TAG, "Cannot start: no robot focus")
+            statusTextView.text = getString(R.string.status_waiting)
+            return
+        }
+
+        // Don't start if chatbot is busy (speaking or processing)
+        if (chatBotManager?.isBusy() == true) {
+            Log.d(TAG, "Cannot start: chatbot is busy")
+            return
+        }
+
+        Log.i(TAG, "All conditions met, starting listening")
+        handsFreeAsr?.startListening()
+    }
+
+    private fun stopListeningCompletely() {
+        Log.i(TAG, "Stopping listening completely")
+        handsFreeAsr?.stopListening()
+
+        runOnUiThread {
+            updateStateIndicator(ChatState.IDLE)
+            volumeIndicator.progress = 0
+        }
+    }
+
+    // Robot Lifecycle Callbacks
+
     override fun onRobotFocusGained(qiContext: QiContext?) {
         this.qiContext = qiContext
         hasRobotFocus = true
+
         if (qiContext == null) {
             Log.e(TAG, "QiContext is null")
             return
         }
+
         Log.i(TAG, "Robot focus gained")
+
+        // Set QiContext for ChatBotManager
+        chatBotManager?.setQiContext(qiContext)
+
         runOnUiThread {
-            statusTextView.text = getString(R.string.status_ready)
-            startListening()
+            tryStartListening()
         }
     }
 
@@ -96,172 +271,217 @@ class MainActivity : ComponentActivity(), RobotLifecycleCallbacks {
         Log.i(TAG, "Robot focus lost")
         hasRobotFocus = false
         qiContext = null
+
+        chatBotManager?.setQiContext(null)
+        chatBotManager?.cancelSpeaking()
+
         runOnUiThread {
-            stopListening()
+            stopListeningCompletely()
             statusTextView.text = getString(R.string.status_waiting)
         }
     }
 
     override fun onRobotFocusRefused(reason: String?) {
         Log.e(TAG, "Robot focus refused: $reason")
+        hasRobotFocus = false
+
         runOnUiThread {
             statusTextView.text = getString(R.string.status_error, reason ?: "Unknown")
+            updateStateIndicator(ChatState.ERROR)
         }
     }
 
-    private fun initSpeechRecognizer() {
-        if (speechRecognizer != null) return
+    // HandsFreeAsr.Listener Implementation
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Log.e(TAG, "Speech recognition not available on this device")
-            statusTextView.text = getString(R.string.status_error, "Speech recognition not available")
-            return
-        }
-
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    Log.d(TAG, "Ready for speech")
-                    runOnUiThread {
-                        statusTextView.text = getString(R.string.status_listening)
-                    }
-                }
-
-                override fun onBeginningOfSpeech() {
-                    Log.d(TAG, "Beginning of speech")
-                }
-
-                override fun onRmsChanged(rmsdB: Float) {
-                    // Audio level changed - could use for visual feedback
-                }
-
-                override fun onBufferReceived(buffer: ByteArray?) {
-                }
-
-                override fun onEndOfSpeech() {
-                    Log.d(TAG, "End of speech")
-                    runOnUiThread {
-                        statusTextView.text = getString(R.string.status_processing)
-                    }
-                }
-
-                override fun onError(error: Int) {
-                    val errorMessage = getErrorMessage(error)
-                    Log.e(TAG, "Speech recognition error: $errorMessage")
-                    runOnUiThread {
-                        when (error) {
-                            SpeechRecognizer.ERROR_NO_MATCH,
-                            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                                statusTextView.text = getString(R.string.status_no_speech)
-                            }
-                            else -> {
-                                statusTextView.text = getString(R.string.status_error, errorMessage)
-                            }
-                        }
-                        // Restart listening after a short delay
-                        if (hasRobotFocus && isListening) {
-                            statusTextView.postDelayed({ startListening() }, 500)
-                        }
-                    }
-                }
-
-                override fun onResults(results: Bundle?) {
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!matches.isNullOrEmpty()) {
-                        val recognizedText = matches[0]
-                        Log.i(TAG, "Recognized: $recognizedText")
-                        runOnUiThread {
-                            recognizedTextView.text = recognizedText
-                            statusTextView.text = getString(R.string.status_ready)
-                        }
-                    }
-                    // Continue listening
-                    if (hasRobotFocus && isListening) {
-                        runOnUiThread {
-                            statusTextView.postDelayed({ startListening() }, 300)
-                        }
-                    }
-                }
-
-                override fun onPartialResults(partialResults: Bundle?) {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    if (!matches.isNullOrEmpty()) {
-                        Log.d(TAG, "Partial: ${matches[0]}")
-                        // Optionally show partial results
-                        runOnUiThread {
-                            recognizedTextView.text = buildString {
-                                append(matches[0].toString())
-                                append("...")
-                            }
-                        }
-                    }
-                }
-
-                override fun onEvent(eventType: Int, params: Bundle?) {
-                    Log.d(TAG, "Speech event: $eventType")
-                }
-            })
+    override fun onReadyForSpeech() {
+        Log.d(TAG, "ASR: Ready for speech")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_listening)
+            currentSpeechTextView.text = getString(R.string.hint_speak_now)
+            updateStateIndicator(ChatState.LISTENING)
         }
     }
 
-    private fun startListening() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            Log.w(TAG, "No audio permission, cannot start listening")
-            return
-        }
-
-        initSpeechRecognizer()
-
-        if (speechRecognizer == null) {
-            Log.e(TAG, "SpeechRecognizer is null")
-            return
-        }
-
-        isListening = true
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            // Adjust silence detection
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 3000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-        }
-
-        try {
-            speechRecognizer?.startListening(intent)
-            Log.i(TAG, "Started listening...")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting speech recognition", e)
-            statusTextView.text = getString(R.string.status_error, e.message)
+    override fun onSpeechStarted() {
+        Log.d(TAG, "ASR: Speech started")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_speaking)
+            updateStateIndicator(ChatState.USER_SPEAKING)
         }
     }
 
-    private fun stopListening() {
-        isListening = false
-        try {
-            speechRecognizer?.stopListening()
-            speechRecognizer?.cancel()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping speech recognition", e)
+    override fun onSpeechEnded() {
+        Log.d(TAG, "ASR: Speech ended")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_processing)
+            updateStateIndicator(ChatState.PROCESSING)
         }
     }
 
-    private fun getErrorMessage(errorCode: Int): String {
-        return when (errorCode) {
-            SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
-            SpeechRecognizer.ERROR_CLIENT -> "Client side error"
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-            SpeechRecognizer.ERROR_NETWORK -> "Network error"
-            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
-            SpeechRecognizer.ERROR_NO_MATCH -> "No speech match"
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
-            SpeechRecognizer.ERROR_SERVER -> "Server error"
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
-            else -> "Unknown error ($errorCode)"
+    override fun onPartialResult(partialText: String) {
+        Log.d(TAG, "ASR: Partial result: $partialText")
+        runOnUiThread {
+            currentSpeechTextView.text = partialText
         }
+    }
+
+    override fun onFinalResult(text: String) {
+        Log.i(TAG, "ASR: Final result: $text")
+        runOnUiThread {
+            currentSpeechTextView.text = text
+
+            // Send to chatbot for processing
+            if (text.isNotBlank()) {
+                chatBotManager?.processUserMessage(text)
+            } else {
+                // Resume listening if no text
+                tryStartListening()
+            }
+        }
+    }
+
+    override fun onError(error: HandsFreeAsr.AsrError) {
+        Log.e(TAG, "ASR: Error: ${error.message}")
+        runOnUiThread {
+            when {
+                error.isPhysiological -> {
+                    statusTextView.text = getString(R.string.status_no_speech)
+                    // Will auto-restart
+                }
+                error is HandsFreeAsr.AsrError.PermissionDenied -> {
+                    statusTextView.text = getString(R.string.status_permission_denied)
+                    updateStateIndicator(ChatState.ERROR)
+                }
+                error is HandsFreeAsr.AsrError.NotAvailable -> {
+                    statusTextView.text = getString(R.string.status_asr_not_available)
+                    updateStateIndicator(ChatState.ERROR)
+                }
+                else -> {
+                    statusTextView.text = getString(R.string.status_error, error.message)
+                }
+            }
+        }
+    }
+
+    override fun onRmsChanged(rmsdB: Float) {
+        runOnUiThread {
+            val normalized = ((rmsdB + 2) / 12 * 100).toInt().coerceIn(0, 100)
+            volumeIndicator.progress = normalized
+        }
+    }
+
+    // ChatBotManager.Listener Implementation
+
+    override fun onSendingMessage(userMessage: String) {
+        Log.d(TAG, "ChatBot: Sending message: $userMessage")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_sending)
+            updateStateIndicator(ChatState.PROCESSING)
+
+            // Add user message to conversation display
+            addToConversation("You", userMessage)
+        }
+    }
+
+    override fun onResponseReceived(botReply: String) {
+        Log.d(TAG, "ChatBot: Response received: $botReply")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_bot_responding)
+
+            // Add bot response to conversation display
+            addToConversation("Pepper", botReply)
+        }
+    }
+
+    override fun onSpeakingStarted() {
+        Log.d(TAG, "ChatBot: Pepper started speaking")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_pepper_speaking)
+            updateStateIndicator(ChatState.BOT_SPEAKING)
+        }
+    }
+
+    override fun onSpeakingFinished() {
+        Log.d(TAG, "ChatBot: Pepper finished speaking")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_ready)
+            currentSpeechTextView.text = getString(R.string.hint_speak_now)
+        }
+    }
+
+    override fun onError(message: String) {
+        Log.e(TAG, "ChatBot: Error: $message")
+        runOnUiThread {
+            statusTextView.text = getString(R.string.status_error, message)
+            updateStateIndicator(ChatState.ERROR)
+
+            // Add error to conversation
+            addToConversation("System", "Error: $message")
+        }
+    }
+
+    override fun onPauseAsrRequested() {
+        Log.d(TAG, "ChatBot: Pause ASR requested")
+        handsFreeAsr?.stopListening()
+    }
+
+    override fun onResumeAsrRequested() {
+        Log.d(TAG, "ChatBot: Resume ASR requested")
+        runOnUiThread {
+            tryStartListening()
+        }
+    }
+
+    // UI Helpers
+
+    /**
+     * Represents the overall chat state for UI updates.
+     */
+    enum class ChatState {
+        INITIALIZING,
+        IDLE,
+        LISTENING,
+        USER_SPEAKING,
+        PROCESSING,
+        BOT_SPEAKING,
+        ERROR
+    }
+
+    private fun updateStateIndicator(state: ChatState) {
+        val colorRes = when (state) {
+            ChatState.INITIALIZING -> R.color.state_idle
+            ChatState.IDLE -> R.color.state_idle
+            ChatState.LISTENING -> R.color.state_listening
+            ChatState.USER_SPEAKING -> R.color.state_speaking
+            ChatState.PROCESSING -> R.color.state_processing
+            ChatState.BOT_SPEAKING -> R.color.state_bot_speaking
+            ChatState.ERROR -> R.color.state_error
+        }
+        stateIndicator.setBackgroundColor(ContextCompat.getColor(this, colorRes))
+    }
+
+    private fun addToConversation(speaker: String, message: String) {
+        if (conversationBuilder.isNotEmpty()) {
+            conversationBuilder.append("\n\n")
+        }
+        conversationBuilder.append("$speaker: $message")
+
+        conversationTextView.text = conversationBuilder.toString()
+
+        // Scroll to bottom
+        conversationScrollView.post {
+            conversationScrollView.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    private fun exitApp() {
+        Log.i(TAG, "Exiting application")
+
+        // Stop listening and release resources
+        handsFreeAsr?.stopListening()
+        chatBotManager?.cancelSpeaking()
+
+        // Finish the activity
+        finishAffinity()
     }
 }

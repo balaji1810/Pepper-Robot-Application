@@ -7,4 +7,12 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Chat State Indicator Colors -->
+    <color name="state_idle">#9E9E9E</color>           <!-- Gray - idle/waiting -->
+    <color name="state_listening">#4CAF50</color>      <!-- Green - ready for speech -->
+    <color name="state_speaking">#2196F3</color>       <!-- Blue - user speaking -->
+    <color name="state_processing">#FF9800</color>     <!-- Orange - processing -->
+    <color name="state_bot_speaking">#9C27B0</color>   <!-- Purple - Pepper speaking -->
+    <color name="state_error">#F44336</color>          <!-- Red - error -->
 </resources>

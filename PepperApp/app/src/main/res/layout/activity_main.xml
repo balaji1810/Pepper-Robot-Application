@@ -4,28 +4,101 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="32dp"
-    android:gravity="center">
+    android:padding="24dp"
+    android:background="@android:color/white">
 
-    <TextView
-        android:id="@+id/statusTextView"
-        android:layout_width="wrap_content"
+    <!-- Header with state indicator and status -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
-        android:text="@string/status_waiting"
-        android:textColor="@android:color/darker_gray"
-        android:textSize="24sp" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
 
+        <!-- State Indicator (colored circle showing chat state) -->
+        <View
+            android:id="@+id/stateIndicator"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="16dp"
+            android:background="@drawable/state_indicator_background" />
+
+        <!-- Status text showing current state -->
+        <TextView
+            android:id="@+id/statusTextView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/status_waiting"
+            android:textColor="@android:color/darker_gray"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <!-- Clear conversation button -->
+        <Button
+            android:id="@+id/clearButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_clear"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- Volume indicator (visual feedback for audio level) -->
+    <ProgressBar
+        android:id="@+id/volumeIndicator"
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:layout_marginBottom="16dp"
+        android:max="100"
+        android:progress="0"
+        android:progressDrawable="@drawable/volume_progress" />
+
+    <!-- Current speech being recognized -->
     <TextView
-        android:id="@+id/recognizedTextView"
+        android:id="@+id/currentSpeechTextView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="60dp"
+        android:text="@string/hint_speak_now"
+        android:textSize="20sp"
+        android:textColor="@color/state_speaking"
+        android:textStyle="italic"
+        android:gravity="center"
+        android:padding="12dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/current_speech_background" />
+
+    <!-- Conversation history -->
+    <ScrollView
+        android:id="@+id/conversationScrollView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:text="@string/recognized_text_hint"
-        android:textSize="48sp"
-        android:textColor="@android:color/black"
-        android:gravity="center"
-        android:scrollbars="vertical" />
+        android:fillViewport="true"
+        android:background="@drawable/conversation_background">
+
+        <TextView
+            android:id="@+id/conversationTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp"
+            android:textSize="18sp"
+            android:textColor="@android:color/black"
+            android:lineSpacingExtra="4dp" />
+    </ScrollView>
+
+    <!-- Instructions at the bottom -->
+    <TextView
+        android:id="@+id/instructionsTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:layout_gravity="center_horizontal"
+        android:text="@string/instructions_chatbot"
+        android:textColor="@android:color/darker_gray"
+        android:textSize="14sp"
+        android:gravity="center" />
 
 </LinearLayout>
 
