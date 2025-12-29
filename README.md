@@ -401,4 +401,4 @@ Pepper Robot Project/
 
 ## License
 
-See [LICENSE](Langchain%20API/LICENSE) for details.
+See [LICENSE](./LICENSE) for details.
