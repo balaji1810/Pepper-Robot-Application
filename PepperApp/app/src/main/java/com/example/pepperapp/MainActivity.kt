@@ -21,7 +21,7 @@ private const val TAG = "MainActivity"
 private const val PERMISSION_REQUEST_CODE = 1001
 
 // API Configuration - Change these to your server's IP and token
-private const val API_BASE_URL = "http://192.168.0.108:5000"
+private const val API_BASE_URL = "http://192.168.0.108:5000"  // Replace with your Flask server URL
 private const val API_AUTH_TOKEN = "supersecretapitoken"  // Replace with your actual Bearer token
 
 /**
