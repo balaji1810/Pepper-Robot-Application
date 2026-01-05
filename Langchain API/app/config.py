@@ -20,13 +20,15 @@ def load_config() -> Config:
     # Load variables from a .env file if present
     load_dotenv()
 
-    mistral_key = os.getenv("MISTRAL_API_KEY")
-    api_token = os.getenv("API_AUTH_TOKEN")
+    mistral_key = os.getenv("MISTRAL_API_KEY", "YOUR_MISTRAL_AI_API_KEY")
+    api_token = os.getenv("API_AUTH_TOKEN", "supersecretapitoken")
     env = os.getenv("FLASK_ENV", "production")
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port_str = os.getenv("FLASK_PORT", "5000")
     use_redis_str = os.getenv("USE_REDIS", "0")
-    redis_url = os.getenv("REDIS_URL")
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0") # required if USE_REDIS=1
+    # REDIS_URL=redis://username:password@host:port/0 # redis cloud example
+    # example: REDIS_URL=redis://default:abcde********@redis-17100.c85.us-east-1-3.ec2.cloud.redislabs.com:17100/0
     temp_str = os.getenv("LLM_TEMPERATURE", "0.7")
 
     # Validate required secrets
