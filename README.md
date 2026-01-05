@@ -142,6 +142,8 @@ REDIS_URL=redis://localhost:6379/0
 LLM_TEMPERATURE=0.7
 ```
 
+If you don't prefer to use `.env` you can also pass default values for the variables in [`config.py`](./Langchain%20API/app/config.py#L23) file.
+
 | Variable | Description |
 |----------|-------------|
 | `MISTRAL_API_KEY` | **Required.** Your Mistral API key |
@@ -353,6 +355,15 @@ curl -X POST http://<LAPTOP_IP>:5000/api/chat \
 |---------|----------|
 | **401 Unauthorized** | Ensure `API_AUTH_TOKEN` in `MainActivity.kt` matches `API_AUTH_TOKEN` in `.env` |
 | **Missing Bearer prefix** | Token must be sent as `Authorization: Bearer <token>` |
+
+### Deployment Issues
+| Problem | Solution |
+|---------|----------|
+|**INSTALL_FAILED_UPDATE_INCOMPATIBLE**| Uninstall previous app version from Pepper before deploying new one |
+|**Gradle/AGP Version Compatibility**| Ensure Android Studio and Gradle plugin are up to date |
+|**Could not resolve com.aldebaran:...**| Verify Pepper SDK repository is added in `build.gradle` |
+|**Unsupported class file major version**| Use JDK 11 for building the app |
+|**SDK location not found**| Set Android SDK path in Android Studio settings. In `local.properties` set `sdk.dir=C\:\\Users\\<username>\\AppData\\Local\\Android\\Sdk`|
 
 ### Microphone Issues
 
