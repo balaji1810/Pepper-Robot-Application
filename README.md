@@ -1,6 +1,7 @@
 # Pepper Robot LLM Chatbot
 
-A conversational AI chatbot for [SoftBank Robotics Pepper robot](https://us.softbankrobotics.com/pepper). The system captures user speech, sends it to a LangChain-powered Flask API using Mistral LLM, and speaks the AI response through Pepper.
+A conversational AI chatbot for [SoftBank Robotics Pepper robot](https://us.softbankrobotics.com/pepper). The system captures user speech, sends it to a LangChain-powered Flask API using Mistral LLM, and speaks the AI response through Pepper. \
+Detailed report about the project: [report.pdf](./report/report.pdf)
 
 ## Features
 
